@@ -1,0 +1,76 @@
+\section{作业九}
+    \subsection{}
+        首先根据文档，要判断缺页是发生在用户模式还是内核模式下，需检查tf_cs的低位，在kern/trap.c的函数page_fault_handler中添加代码如下：
+
+        \begin{lstlisting}[style=CPP]
+if ((tf->tf_cs&3) == 0)
+    panic("Kernel page fault!");
+        \end{lstlisting}[style=CPP]
+
+    \subsection{}
+        在kern/pmap.c实现函数user_mem_check，检测线性地址是否有效：
+
+        \begin{lstlisting}[style=CPP]
+int
+user_mem_check(struct Env *env, const void *va, size_t len, int perm)
+{
+    // LAB 3: Your code here.
+    cprintf("user_mem_check va: %x, len: %x\n", va, len);
+    uint32_t begin = (uint32_t) ROUNDDOWN(va, PGSIZE); 
+    uint32_t end = (uint32_t) ROUNDUP(va+len, PGSIZE);
+    uint32_t i;
+    for (i = (uint32_t)begin; i < end; i += PGSIZE) {
+        pte_t *pte = pgdir_walk(env->env_pgdir, (void*)i, 0);
+        if ((i >= ULIM) || !pte || !(*pte & PTE_P) || ((*pte & perm) != perm)) {
+            user_mem_check_addr = (i<(uint32_t)va?(uint32_t)va:i);
+            return -E_FAULT;
+        }
+    }
+    cprintf("user_mem_check success va: %x, len: %x\n", va, len);
+    return 0;
+}
+        \end{lstlisting}
+
+        根据注释，用户程序可获得一个线性地址仅当：1）该地址低于ULIM；2）页表给与其权限perm | PTE_P。
+
+    \subsection{}
+        接着，在kern/syscall.c的sys_cputs中检查用户空间地址：
+
+        \begin{lstlisting}[style=CPP]
+static void
+sys_cputs(const char *s, size_t len)
+{
+    // Check that the user has permission to read memory [s, s+len).
+    // Destroy the environment if not.
+
+    // LAB 3: Your code here.
+    user_mem_assert(curenv, s, len, PTE_U);
+
+    // Print the string supplied by the user.
+    cprintf("%.*s", len, s);
+}
+        \begin{lstlisting}
+        
+        此时，执行make run-buggyhello，进程会被销毁，内核不会恐慌。
+
+    \subsection{}
+        最后，修改在kern/kdebug.c的debuginfo_eip，对usd,stabs,stabstr分别调用user_mem_check。
+
+        \begin{lstlisting}[style=CPP]
+// Make sure this memory is valid.
+// Return -1 if it is not.  Hint: Call user_mem_check.
+// LAB 3: Your code here.
+if (user_mem_check(curenv, usd, sizeof(struct UserStabData), PTE_U))
+    return -1;
+
+    ...
+// Make sure the STABS and string table memory is valid.
+// LAB 3: Your code here.
+if (user_mem_check(curenv, stabs, sizeof(struct Stab), PTE_U))
+    return -1;
+if (user_mem_check(curenv, stabstr, stabstr_end-stabstr, PTE_U))
+    return -1;
+        \end{lstlisting}
+
+\section{作业十}
+    根据文档，上面实现的机制对恶意的用户程序也同样有效，进程会被销毁，内核不会恐慌。
